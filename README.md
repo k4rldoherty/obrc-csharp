@@ -47,16 +47,16 @@ To squeeze every ounce of performance out of .NET, this implementation explores:
 
 ### Input Generator
 
-| Version | Description | Execution Time |
+| Version | Description | Execution Time (ms) |
 | :--- | :--- | :--- |
-| **v1.0** | -- | -- |
+| **v1.0** | Base Implementation | 295300 |
 | **v2.0** | -- | -- |
 | **v3.0** | -- | -- |
 
 ### Input Parser
-| Version | Description | Execution Time |
+| Version | Description | Execution Time (ms) |
 | :--- | :--- | :--- |
-| **v1.0** | -- | -- |
+| **v1.0** | Base Implementation | -- |
 | **v2.0** | -- | -- |
 | **v3.0** | -- | -- |
 
