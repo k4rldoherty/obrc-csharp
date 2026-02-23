@@ -1,4 +1,5 @@
 using System.Buffers;
+using System.Diagnostics;
 using System.Threading.Channels;
 
 namespace Obrc.Input.Implementations;
@@ -30,6 +31,8 @@ public class VersionThree
     {
         try
         {
+            var sw = new Stopwatch();
+            sw.Start();
             var documentsDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             Dictionary<string, float> stations = GetUniqueStations(documentsDir);
             var stationsList = stations.ToList();
@@ -78,6 +81,8 @@ public class VersionThree
                     }
                 }
             }
+            sw.Stop();
+            Console.WriteLine($"Total time taken {sw.ElapsedMilliseconds} ms");
             Console.WriteLine("Complete!");
         }
         catch (Exception ex)

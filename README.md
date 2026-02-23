@@ -38,8 +38,10 @@ Palembang;38.8;39.9;41.0
 
 ## Tech & Optimization Strategy
 To squeeze every ounce of performance out of .NET, this implementation explores:
-
-- TBD
+- Multi threaded
+- Channels
+- Batch inserts
+- Shared array pool
 
 ---
 
@@ -47,11 +49,12 @@ To squeeze every ounce of performance out of .NET, this implementation explores:
 
 ### Input Generator
 
-| Version | Description | Execution Time (ms) |
+| Version | Description | Execution Time (s) |
 | :--- | :--- | :--- |
-| **v1.0** | Base Implementation | 295300 |
-| **v2.0** | -- | -- |
-| **v3.0** | -- | -- |
+| **v1.0** | Base Implementation | 391 |
+| **v2.0** | Single threaded, batch inserts, more efficient | 343 |
+| **v3.0** | Multi threaded, 7 worker threads and 1 writer thread | 150 |
+| **v4.0** | ?? | ?? |
 
 ### Input Parser
 | Version | Description | Execution Time (ms) |

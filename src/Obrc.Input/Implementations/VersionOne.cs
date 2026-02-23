@@ -1,30 +1,39 @@
-using BenchmarkDotNet.Attributes;
+
+using System.Diagnostics;
 
 namespace Obrc.Input.Implementations;
 
 public class VersionOne
 {
-    const string WEATHER_STATIONS_FILE = "weather_stations.txt";
-    const string MEASUREMENTS_FILE = "measurements.txt";
-    const int UNIQUE_CITIES = 10_000;
-    const int TOTAL_CITIES = 1_000_000;
-    const int TEN_PERCENT_DIVISOR = 100_000;
+    private readonly string _weatherStationsFile;
+    private readonly string _mesurementsFile;
+    private readonly int _uniqueCities;
+    private readonly int _totalCities;
 
-    [Benchmark]
+    public VersionOne(string weatherStationsFile, string mesurementsFile, int uniqueCities, int totalCities)
+    {
+        _weatherStationsFile = weatherStationsFile;
+        _mesurementsFile = mesurementsFile;
+        _uniqueCities = uniqueCities;
+        _totalCities = totalCities;
+    }
+
     public void SeedData()
     {
         try
         {
+            var sw = new Stopwatch();
+            sw.Start();
             Dictionary<string, float> stations = new();
             var documentsDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            var filePath = Path.Combine(documentsDir, WEATHER_STATIONS_FILE);
+            var filePath = Path.Combine(documentsDir, _weatherStationsFile);
             Console.WriteLine("Reading data...");
 
             using (var file = File.OpenRead(filePath))
             {
                 var stream = new StreamReader(file);
                 var lineNo = 0;
-                while (!stream.EndOfStream && lineNo < UNIQUE_CITIES)
+                while (!stream.EndOfStream && lineNo < _uniqueCities)
                 {
                     var line = stream.ReadLine();
                     var parts = line!.Split(';');
@@ -34,7 +43,7 @@ public class VersionOne
                 stream.Close();
             }
 
-            var measurementsPath = Path.Combine(documentsDir, MEASUREMENTS_FILE);
+            var measurementsPath = Path.Combine(documentsDir, _mesurementsFile);
 
             using (var file = File.OpenWrite(measurementsPath))
             {
@@ -52,15 +61,8 @@ public class VersionOne
 
                     var rand = new Random();
                     var stationsList = stations.ToList();
-                    int completedPercentage = 0;
-                    for (int lineNo = UNIQUE_CITIES; lineNo < TOTAL_CITIES; lineNo++)
+                    for (int lineNo = _uniqueCities; lineNo < _totalCities; lineNo++)
                     {
-                        if (lineNo % TEN_PERCENT_DIVISOR == 0)
-                        {
-                            completedPercentage += 10;
-                            Console.WriteLine($"{completedPercentage}% completed");
-                        }
-
                         var randIdx = rand.Next(0, stations.Count);
                         var randJitter = rand.NextDouble() * 20 - 10;
                         var station = stationsList[randIdx];
@@ -71,6 +73,8 @@ public class VersionOne
                     }
                 }
             }
+            sw.Stop();
+            Console.WriteLine($"Total time taken {sw.ElapsedMilliseconds} ms");
             Console.WriteLine("Complete!");
         }
         catch (Exception ex)

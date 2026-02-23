@@ -1,4 +1,3 @@
-using System.Text;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 
@@ -10,29 +9,25 @@ public class VersionTwo
     private readonly string _mesurementsFile;
     private readonly int _uniqueCities;
     private readonly int _totalCities;
-    private readonly int _tenPercentDivisor;
 
-    public VersionTwo(string weatherStationsFile, string mesurementsFile, int uniqueCities, int totalCities, int tenPercentDivisor)
+    public VersionTwo(string weatherStationsFile, string mesurementsFile, int uniqueCities, int totalCities)
     {
         _weatherStationsFile = weatherStationsFile;
         _mesurementsFile = mesurementsFile;
         _uniqueCities = uniqueCities;
         _totalCities = totalCities;
-        _tenPercentDivisor = tenPercentDivisor;
     }
 
     public void SeedData()
     {
         try
         {
-            var documentsDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             var sw = new Stopwatch();
             sw.Start();
+            var documentsDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
             Dictionary<string, float> stations = GetUniqueStations(documentsDir);
             var stationsList = stations.ToList();
-            sw.Stop();
             Console.WriteLine($"Getting 10,000 unique stations took {sw.ElapsedMilliseconds} ms");
-            sw.Reset();
 
             var measurementsPath = Path.Combine(documentsDir, _mesurementsFile);
 
@@ -40,18 +35,12 @@ public class VersionTwo
             {
                 using (var stream = new StreamWriter(file))
                 {
-                    var sb = new StringBuilder();
-                    sw.Start();
                     SeedInitialTenThousand(stationsList, stream);
-                    sw.Stop();
-                    Console.WriteLine($"Seeding initial 10,000 took {sw.ElapsedMilliseconds} ms");
-                    sw.Reset();
-                    sw.Start();
                     WriteRandomStations(stationsList, stream);
-                    sw.Stop();
-                    Console.WriteLine($"Writing the remaining random stations took {sw.ElapsedMilliseconds} ms");
                 }
             }
+            sw.Stop();
+            Console.WriteLine($"Total time taken {sw.ElapsedMilliseconds} ms");
             Console.WriteLine("Complete!");
         }
         catch (Exception ex)
@@ -115,17 +104,11 @@ public class VersionTwo
         try
         {
             var rand = new Random();
-            int completedPercentage = 0;
             Span<char> buffer = stackalloc char[16];
             Span<char> bucket = stackalloc char[8192];
             int bucketIdx = 0;
             for (int lineNo = _uniqueCities; lineNo < _totalCities; lineNo++)
             {
-                if (lineNo % _tenPercentDivisor == 0)
-                {
-                    completedPercentage += 10;
-                    Console.WriteLine($"{completedPercentage}% completed");
-                }
 
                 var randIdx = rand.Next(0, stations.Count);
                 var randJitter = rand.NextDouble() * 20 - 10;
