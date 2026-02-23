@@ -6,18 +6,26 @@ namespace Obrc.Input.Implementations;
 
 public class VersionTwo
 {
-    const string WEATHER_STATIONS_FILE = "weather_stations.txt";
-    const string MEASUREMENTS_FILE = "measurements.txt";
-    const int UNIQUE_CITIES = 10_000;
-    const int TOTAL_CITIES = 1_000_000_000;
-    const int TEN_PERCENT_DIVISOR = 100_000_000;
+    private readonly string _weatherStationsFile;
+    private readonly string _mesurementsFile;
+    private readonly int _uniqueCities;
+    private readonly int _totalCities;
+    private readonly int _tenPercentDivisor;
+
+    public VersionTwo(string weatherStationsFile, string mesurementsFile, int uniqueCities, int totalCities, int tenPercentDivisor)
+    {
+        _weatherStationsFile = weatherStationsFile;
+        _mesurementsFile = mesurementsFile;
+        _uniqueCities = uniqueCities;
+        _totalCities = totalCities;
+        _tenPercentDivisor = tenPercentDivisor;
+    }
 
     public void SeedData()
     {
         try
         {
             var documentsDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-
             var sw = new Stopwatch();
             sw.Start();
             Dictionary<string, float> stations = GetUniqueStations(documentsDir);
@@ -26,7 +34,7 @@ public class VersionTwo
             Console.WriteLine($"Getting 10,000 unique stations took {sw.ElapsedMilliseconds} ms");
             sw.Reset();
 
-            var measurementsPath = Path.Combine(documentsDir, MEASUREMENTS_FILE);
+            var measurementsPath = Path.Combine(documentsDir, _mesurementsFile);
 
             using (var file = File.OpenWrite(measurementsPath))
             {
@@ -57,13 +65,12 @@ public class VersionTwo
     {
         try
         {
-
             var stations = new Dictionary<string, float>();
-            var filePath = Path.Combine(documentsDir, WEATHER_STATIONS_FILE);
+            var filePath = Path.Combine(documentsDir, _weatherStationsFile);
             using var file = File.OpenRead(filePath);
             using var stream = new StreamReader(file);
             var lineNo = 0;
-            while (!stream.EndOfStream && lineNo < UNIQUE_CITIES)
+            while (!stream.EndOfStream && lineNo < _uniqueCities)
             {
                 var line = stream.ReadLine();
                 var parts = line!.Split(';');
@@ -105,61 +112,60 @@ public class VersionTwo
 
     private void WriteRandomStations(List<KeyValuePair<string, float>> stations, StreamWriter stream)
     {
-        var rand = new Random();
-        int completedPercentage = 0;
-        Span<char> buffer = stackalloc char[16];
-        Span<char> bucket = stackalloc char[4096];
-        int bucketIdx = 0;
-        for (int lineNo = UNIQUE_CITIES; lineNo < TOTAL_CITIES; lineNo++)
+        try
         {
-            if (lineNo % TEN_PERCENT_DIVISOR == 0)
+            var rand = new Random();
+            int completedPercentage = 0;
+            Span<char> buffer = stackalloc char[16];
+            Span<char> bucket = stackalloc char[8192];
+            int bucketIdx = 0;
+            for (int lineNo = _uniqueCities; lineNo < _totalCities; lineNo++)
             {
-                completedPercentage += 10;
-                Console.WriteLine($"{completedPercentage}% completed");
+                if (lineNo % _tenPercentDivisor == 0)
+                {
+                    completedPercentage += 10;
+                    Console.WriteLine($"{completedPercentage}% completed");
+                }
+
+                var randIdx = rand.Next(0, stations.Count);
+                var randJitter = rand.NextDouble() * 20 - 10;
+                var station = stations[randIdx];
+                var temperature = station.Value + randJitter;
+                if (temperature.TryFormat(buffer, out int bytesWritten, "0.0"))
+                {
+                    // Get the length of the station line you are trying to write
+                    // Station + ';' + bytesWritten + '\n'
+                    int lineLength = station.Key.Length + bytesWritten + 2;
+                    if (bucketIdx + lineLength > bucket.Length)
+                    {
+                        // write the bucket to the stream and reset the bucket
+                        stream.Write(bucket.Slice(0, bucketIdx));
+                        bucket.Clear();
+                        bucketIdx = 0;
+                    }
+                    // add station
+                    station.Key.AsSpan().CopyTo(bucket.Slice(bucketIdx));
+                    bucketIdx += station.Key.Length;
+                    // add ';'
+                    bucket[bucketIdx] = ';';
+                    bucketIdx++;
+                    // add temperature
+                    buffer.Slice(0, bytesWritten).CopyTo(bucket.Slice(bucketIdx));
+                    bucketIdx += bytesWritten;
+                    // add '\n'
+                    bucket[bucketIdx] = '\n';
+                    bucketIdx++;
+                }
             }
 
-            var randIdx = rand.Next(0, stations.Count);
-            var randJitter = rand.NextDouble() * 20 - 10;
-            var station = stations[randIdx];
-            var temperature = station.Value + randJitter;
-            if (temperature.TryFormat(buffer, out int bytesWritten, "0.0"))
-            {
-                // Get the length of the station line you are trying to write
-                // Station + ';' + bytesWritten + '\n'
-                int lineLength = station.Key.Length + bytesWritten + 2;
-                // If there is space in the bucket, write the station line to the bucket
-                if (bucketIdx + lineLength < bucket.Length)
-                {
-                    // write station
-                    station.Key.AsSpan().CopyTo(bucket.Slice(bucketIdx));
-                    bucketIdx += station.Key.Length;
-                    // write ';'
-                    bucket[bucketIdx] = ';';
-                    bucketIdx++;
-                    // write temperature
-                    buffer.Slice(0, bytesWritten).CopyTo(bucket.Slice(bucketIdx));
-                    bucketIdx += bytesWritten;
-                    // write '\n'
-                    bucket[bucketIdx] = '\n';
-                    bucketIdx++;
-                }
-                else
-                {
-                    // write the bucket to the stream and reset the bucket
-                    // and write the line you are currently trying to add to the bucket 
-                    stream.Write(bucket.Slice(0, bucketIdx));
-                    bucket.Clear();
-                    bucketIdx = 0;
-                    station.Key.AsSpan().CopyTo(bucket.Slice(bucketIdx));
-                    bucketIdx += station.Key.Length;
-                    bucket[bucketIdx] = ';';
-                    bucketIdx++;
-                    buffer.Slice(0, bytesWritten).CopyTo(bucket.Slice(bucketIdx));
-                    bucketIdx += bytesWritten;
-                    bucket[bucketIdx] = '\n';
-                    bucketIdx++;
-                }
-            }
+            // Write the remaining bucket to the stream
+            if (bucketIdx > 0)
+                stream.Write(bucket.Slice(0, bucketIdx));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine(ex.Message);
+            throw;
         }
     }
 }
