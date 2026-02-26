@@ -58,6 +58,8 @@ public class VersionThree
                 thread.Start();
             }
 
+            // Waits for all threads to finish, 
+            // then marks the channell as complete
             var threadManager = Task.Run(() =>
             {
                 foreach (var thread in threads)
@@ -154,8 +156,14 @@ public class VersionThree
 
             // Write the remaining bucket to the stream
             if (bucketIdx > 0)
+                // If the writer is full, wait for it to be available
+                // This prevents the bucket from being thrown away if false is returned from TryWrite()
                 while (!channel.Writer.TryWrite(new Bucket(bucket, bucketIdx)))
                     _channel.Writer.WaitToWriteAsync().AsTask().Wait();
+
+            // If the bucket is empty and not written to the channel
+            // it needs to be returned to the pool here as it will not reach
+            // the return code in the writer thread
             else pool.Return(bucket);
         }
         catch (Exception ex)

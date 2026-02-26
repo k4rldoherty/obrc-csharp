@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="src/Obrc.Input/Obrc.Input.csproj" />
+  <Project Path="src/Obrc/Obrc.csproj" />
+</Solution>
