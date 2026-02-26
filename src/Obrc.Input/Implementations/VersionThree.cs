@@ -1,10 +1,10 @@
 using System.Buffers;
-using System.Diagnostics;
+using System.Text;
 using System.Threading.Channels;
 
 namespace Obrc.Input.Implementations;
 
-public record Bucket(char[] data, int activeIdx);
+public record Bucket(byte[] data, int activeIdx);
 
 public class VersionThree
 {
@@ -20,9 +20,11 @@ public class VersionThree
         _mesurementsFile = mesurementsFile;
         _uniqueCities = uniqueCities;
         _totalCities = totalCities;
+
         _channel = Channel.CreateBounded<Bucket>(new BoundedChannelOptions(1000)
         {
             SingleWriter = false,
+            SingleReader = true,
             AllowSynchronousContinuations = true
         });
     }
@@ -31,14 +33,12 @@ public class VersionThree
     {
         try
         {
-            var sw = new Stopwatch();
-            sw.Start();
             var documentsDir = Environment.GetFolderPath(Environment.SpecialFolder.MyDocuments);
-            Dictionary<string, float> stations = GetUniqueStations(documentsDir);
+            Dictionary<byte[], float> stations = GetUniqueStations(documentsDir);
             var stationsList = stations.ToList();
 
             // A shared array pool is used to reduce the number of allocations
-            ArrayPool<char> arrayPool = ArrayPool<char>.Shared;
+            ArrayPool<byte> arrayPool = ArrayPool<byte>.Shared;
             var measurementsPath = Path.Combine(documentsDir, _mesurementsFile);
 
             // Divide _totalCities by 7 to get the workload
@@ -47,42 +47,35 @@ public class VersionThree
 
             // Create 7 new threads, one of which will write the remaining workload
             List<Thread> threads = new List<Thread>();
-            Thread unluckyThread = new Thread(async () => await WriteRandomStationsNew(stationsList, _channel, arrayPool, workload + remainder));
-            unluckyThread.Start();
+            Thread unluckyThread = new Thread(() => WriteRandomStationsNew(stationsList, _channel, arrayPool, workload + remainder));
             threads.Add(unluckyThread);
+            unluckyThread.Start();
             for (int i = 0; i < 6; i++)
             {
                 // Call the WriteRandomStationsNew method with the channel and the array pool
-                Thread thread = new Thread(async () => await WriteRandomStationsNew(stationsList, _channel, arrayPool, workload));
+                Thread thread = new Thread(() => WriteRandomStationsNew(stationsList, _channel, arrayPool, workload));
                 threads.Add(thread);
                 thread.Start();
             }
 
             var threadManager = Task.Run(() =>
             {
-                int completedPercentage = 0;
                 foreach (var thread in threads)
                 {
                     thread.Join();
-                    completedPercentage += 10;
                 }
                 _channel.Writer.Complete();
             });
 
-            using (var file = File.OpenWrite(measurementsPath))
+            using (var fs = File.OpenWrite(measurementsPath))
             {
-                using (var stream = new StreamWriter(file))
+                while (await _channel.Reader.WaitToReadAsync())
                 {
-                    while (await _channel.Reader.WaitToReadAsync())
-                    {
-                        var bucket = await _channel.Reader.ReadAsync();
-                        stream.Write(bucket.data.AsSpan(0, bucket.activeIdx));
-                        arrayPool.Return(bucket.data);
-                    }
+                    var bucket = await _channel.Reader.ReadAsync();
+                    fs.Write(bucket.data.AsSpan(0, bucket.activeIdx));
+                    arrayPool.Return(bucket.data);
                 }
             }
-            sw.Stop();
-            Console.WriteLine($"Total time taken {sw.ElapsedMilliseconds} ms");
             Console.WriteLine("Complete!");
         }
         catch (Exception ex)
@@ -92,11 +85,11 @@ public class VersionThree
         }
     }
 
-    public Dictionary<string, float> GetUniqueStations(string documentsDir)
+    public Dictionary<byte[], float> GetUniqueStations(string documentsDir)
     {
         try
         {
-            var stations = new Dictionary<string, float>();
+            var stations = new Dictionary<byte[], float>();
             var filePath = Path.Combine(documentsDir, _weatherStationsFile);
             using var file = File.OpenRead(filePath);
             using var stream = new StreamReader(file);
@@ -104,7 +97,7 @@ public class VersionThree
             while (!stream.EndOfStream && lineNo < _uniqueCities)
             {
                 var line = stream.ReadLine();
-                var parts = line!.Split(';');
+                var parts = line!.Split(';').Select(x => Encoding.UTF8.GetBytes(x)).ToArray();
                 if (stations.TryAdd(parts[0], float.Parse(parts[1])))
                     lineNo++;
             }
@@ -117,13 +110,13 @@ public class VersionThree
         }
     }
 
-    private async Task WriteRandomStationsNew(List<KeyValuePair<string, float>> stations, Channel<Bucket> channel, ArrayPool<char> pool, int workload)
+    private void WriteRandomStationsNew(List<KeyValuePair<byte[], float>> stations, Channel<Bucket> channel, ArrayPool<byte> pool, int workload)
     {
         try
         {
             var rand = new Random();
-            var buffer = new char[16];
-            char[] bucket = pool.Rent(8192);
+            var buffer = new byte[16];
+            byte[] bucket = pool.Rent(8192);
             int bucketIdx = 0;
             for (int lineNo = 0; lineNo < workload; lineNo++)
             {
@@ -139,7 +132,8 @@ public class VersionThree
                     if (bucketIdx + lineLength > bucket.Length)
                     {
                         // write the bucket to the stream and reset the bucket
-                        await channel.Writer.WriteAsync(new Bucket(bucket, bucketIdx));
+                        while (!channel.Writer.TryWrite(new Bucket(bucket, bucketIdx)))
+                            _channel.Writer.WaitToWriteAsync().AsTask().Wait();
                         bucketIdx = 0;
                         bucket = pool.Rent(8192);
                     }
@@ -147,20 +141,21 @@ public class VersionThree
                     station.Key.AsSpan().CopyTo(bucket.AsSpan().Slice(bucketIdx));
                     bucketIdx += station.Key.Length;
                     // add ';'
-                    bucket[bucketIdx] = ';';
+                    bucket[bucketIdx] = (byte)';';
                     bucketIdx++;
                     // add temperature
                     buffer[0..bytesWritten].CopyTo(bucket.AsSpan().Slice(bucketIdx));
                     bucketIdx += bytesWritten;
                     // add '\n'
-                    bucket[bucketIdx] = '\n';
+                    bucket[bucketIdx] = (byte)'\n';
                     bucketIdx++;
                 }
             }
 
             // Write the remaining bucket to the stream
             if (bucketIdx > 0)
-                await channel.Writer.WriteAsync(new Bucket(bucket, bucketIdx));
+                while (!channel.Writer.TryWrite(new Bucket(bucket, bucketIdx)))
+                    _channel.Writer.WaitToWriteAsync().AsTask().Wait();
             else pool.Return(bucket);
         }
         catch (Exception ex)
